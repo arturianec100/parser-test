@@ -26,20 +26,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt5 COMPONENTS Widgets REQUIRED)
 
-if(ANDROID)
-  add_library(ParserTest SHARED
-    main.cpp
-    mainwindow.cpp
-    mainwindow.h
-    mainwindow.ui
-  )
-else()
-  add_executable(ParserTest
+add_executable(ParserTest
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
     src/mainwindow.ui
-  )
-endif()
+    src/parser.hpp
+)
 
 target_link_libraries(ParserTest PRIVATE Qt5::Widgets)
