@@ -21,16 +21,17 @@ public:
 public slots:
     void openFile();
     void saveToFile();
+    void parse();
 
 protected:
     void setupActions();
 
-    QString selectFile();
+    QString selectFileToOpen();
+    QString selectFileToSave();
     void openFile(const QString &fileName);
     void saveToFile(const QString &fileName, const QString &content);
 
 private:
     Ui::MainWindow *ui;
-    QString openedFile;
 };
 #endif // MAINWINDOW_H

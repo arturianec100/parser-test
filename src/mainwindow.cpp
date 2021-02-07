@@ -1,6 +1,12 @@
 #include "mainwindow.h"
 #include "./ui_mainwindow.h"
 
+#include "parser.hpp"
+#include "parseresult.h"
+
+#include <tuple>
+#include <sstream>
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -23,15 +29,26 @@ void MainWindow::showError(const QString &message)
 
 void MainWindow::openFile()
 {
-    openFile(selectFile());
+    openFile(selectFileToOpen());
 }
 
 void MainWindow::saveToFile()
 {
-    if (openedFile.size() == 0) {
+    saveToFile(selectFileToSave(), ui->fileContentEdit->toPlainText());
+}
+
+void MainWindow::parse()
+{
+    const QString &source = ui->fileContentEdit->toPlainText();
+    if (source.size() == 0) {
         return;
     }
-    saveToFile(openedFile, ui->fileContentEdit->toPlainText());
+    const char* begin = qPrintable(source);
+    const char* end = begin + source.size();
+
+    ParseResult result = parse_source(begin, end);
+
+    ui->parsedResultsEdit->setPlainText(result.output);
 }
 
 void MainWindow::setupActions()
@@ -40,7 +57,7 @@ void MainWindow::setupActions()
                            "Open File");
     QAction *saveFile = ui->toolBar->addAction(style()->standardIcon(QStyle::SP_DriveFDIcon),
                            "Save File");
-    QAction *parse = ui->toolBar->addAction(style()->standardIcon(QStyle::SP_DialogApplyButton),
+    QAction *parse = ui->toolBar->addAction(style()->standardIcon(QStyle::SP_ArrowRight),
                            "Parse");
 
     openFile->setShortcut(QKeySequence::Open);
@@ -49,11 +66,19 @@ void MainWindow::setupActions()
     //Ignore argument from signal
     connect(openFile, SIGNAL(triggered(bool)), this, SLOT(openFile()));
     connect(saveFile, SIGNAL(triggered(bool)), this, SLOT(saveToFile()));
+    connect(parse, SIGNAL(triggered(bool)), this, SLOT(parse()));
 }
 
-QString MainWindow::selectFile()
+QString MainWindow::selectFileToOpen()
 {
     return QFileDialog::getOpenFileName(this, tr("Open File"),
+                                        QDir::currentPath(),
+                                        tr("All files (*.*)"));
+}
+
+QString MainWindow::selectFileToSave()
+{
+    return QFileDialog::getSaveFileName(this, tr("Save to File"),
                                         QDir::currentPath(),
                                         tr("All files (*.*)"));
 }
@@ -73,7 +98,6 @@ void MainWindow::openFile(const QString &fileName)
             line = stream.readLine();
             ui->fileContentEdit->appendPlainText(line + '\n');
         }
-        openedFile = fileName;
     } else {
         showError(QString("Can't read file %1").arg(fileName));
         return;
