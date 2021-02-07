@@ -14,7 +14,7 @@ ParseResult parse_source(const char* text, const char* end) {
 #ifdef USE_SPIRIT_PARSER
     return spirit_parser::parse_source_with_table(text, end);
 #endif // USE_SPIRIT_PARSER
-    return {false, {}, {{}} };
+    return {};
 }
 
 #endif // PARSER_HPP

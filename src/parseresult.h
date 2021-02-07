@@ -6,9 +6,11 @@
 using StringTable = QLinkedList<QLinkedList<QString>>;
 
 struct ParseResult {
-    bool ok;
-    QString output;
     StringTable table;
+    QString output;
+    bool ok = false;
+    size_t tableBeginIdx = 0;
+    size_t tableEndIdx = 0;
 };
 
 #endif // PARSERESULT_H
