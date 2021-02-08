@@ -8,12 +8,12 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt5 COMPONENTS Widgets REQUIRED)
 
-add_compile_definitions(USE_SPIRIT_PARSER)
+#add_compile_definitions(USE_SPIRIT_PARSER)
 
 list(APPEND SOURCES
     src/main.cpp
@@ -22,6 +22,8 @@ list(APPEND SOURCES
     src/mainwindow.ui
     src/parseresult.h
     src/parser.hpp
+    src/hwparser.h
+    src/hwparser.cpp
 )
 
 if(DEFINED USE_SPIRIT_PARSER)
