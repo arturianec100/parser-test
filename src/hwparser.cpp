@@ -1,6 +1,9 @@
 #include "hwparser.h"
 
+#include "macro.h"
+
 #include <cctype>
+#include <algorithm>
 
 HWParser::HWParser(const char *first_, const char *last_):
     first(first_), last(last_), current(first_) {}
@@ -26,11 +29,31 @@ ParseResult HWParser::parse()
                 break;//switch
             }
             skipTo(';');
-            ++current;
-            break;
+            step();
+            break;//switch
         case Context::Type:
-            //
-            break;
+            expectToken("*");
+            step();
+            skip();
+            //optional char* or char** or char***
+            TIMES(2) {
+                if (token() == "*") {
+                    step();
+                    skip();
+                }
+            }
+            ctx.stage = Context::Identifier;
+            break;//switch
+        case Context::Identifier:
+            std::string_view tokenStr = token();
+            if (!isIdentifier(tokenStr)) {
+                out << "Expected identifier after type, got: " << tokenStr << '\n';
+                ctx.shouldContinue = false;
+                break;//switch
+            }
+            moveBy(tokenStr.size());
+            ctx.stage = Context::Sizing;
+            break;//switch
         default:
             ctx.shouldContinue = false;
         }
@@ -49,6 +72,23 @@ std::string_view HWParser::consume(std::size_t count)
     std::string_view str = peek(count);
     current += count;
     return str;
+}
+
+std::string_view HWParser::token()
+{
+    char* iter = current;
+    std::size_t length = 0;
+    //while (a && b)
+    while ((iter <= last) && (
+               ((*iter) == '*')
+                || ((*iter) == '_')
+                || std::isalnum(*iter)
+               )
+           ) {
+        ++iter;
+        ++length;
+    }
+    return {current, length};
 }
 
 void HWParser::step()
@@ -71,9 +111,24 @@ void HWParser::moveBy(std::size_t chars)
     current += chars;
 }
 
+void HWParser::expectToken(std::string_view expected)
+{
+    if (token() != expected) {
+        ctx.shouldContinue = false;
+        (*ctx.outPtr) << "Expected token: " << expected << '\n';
+    }
+}
+
 std::size_t HWParser::pos() const
 {
     return static_cast<size_t>(current - first);
+}
+
+bool HWParser::isIdentifier(std::string_view str) const
+{
+    return !std::any_of(str.begin(), str.end(), [](char c) {
+        return (!std::isalnum(c)) && (c != '_');
+    });
 }
 
 bool HWParser::isSpecialState() const

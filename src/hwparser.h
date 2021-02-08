@@ -18,10 +18,15 @@ protected:
     //Inner api
     inline string_view peek(size_t count);
     inline string_view consume(size_t count);
+    inline string_view token();
     inline void step();
     inline void moveBy(size_t chars);
 
+    inline void expectToken(string_view expected);
+
     inline size_t pos() const;
+
+    inline bool isIdentifier(string_view str) const;
 
     inline bool isSpecialState() const;
 

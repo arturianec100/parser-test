@@ -17,6 +17,7 @@ find_package(Qt5 COMPONENTS Widgets REQUIRED)
 
 list(APPEND SOURCES
     src/main.cpp
+    src/macro.h
     src/mainwindow.cpp
     src/mainwindow.h
     src/mainwindow.ui
