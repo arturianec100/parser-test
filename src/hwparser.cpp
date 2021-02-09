@@ -54,6 +54,30 @@ ParseResult HWParser::parse()
             moveBy(tokenStr.size());
             ctx.stage = Context::Sizing;
             break;//switch
+        case Context::Sizing:
+            //optional
+            TIMES(2) {
+                if ((*current) == '[') {
+                    step();
+                    skip();
+                    std::string_view tokenStr = token();
+                    if (!isInteger(tokenStr)) {
+                        out << "Expected integer after '[' in sizing, got: " << tokenStr << '\n';
+                        ctx.shouldContinue = false;
+                        break;//switch
+                    }
+                    step();
+                    skip();
+                    if ((*current) != ']') {
+                        out << "Expected ']' after integer in sizing, got: " << tokenStr << '\n';
+                        ctx.shouldContinue = false;
+                        break;//switch
+                    }
+                    step();
+                }
+            }
+            ctx.stage = Context::Column;
+            break;//switch
         default:
             ctx.shouldContinue = false;
         }
@@ -79,12 +103,7 @@ std::string_view HWParser::token()
     char* iter = current;
     std::size_t length = 0;
     //while (a && b)
-    while ((iter <= last) && (
-               ((*iter) == '*')
-                || ((*iter) == '_')
-                || std::isalnum(*iter)
-               )
-           ) {
+    while ((iter <= last) && isTokenChar(*iter)) {
         ++iter;
         ++length;
     }
@@ -94,7 +113,8 @@ std::string_view HWParser::token()
 void HWParser::step()
 {
     ++current;
-    while ((!isEnd()) && (isOnSingleQuote() || isOnDoubleQuote())) {
+    while ((!isEnd()) && (ctx.stage == Context::NoTable)
+           && (isOnSingleQuote() || isOnDoubleQuote())) {
         if (isOnSingleQuote() && (!isOnDoubleQuote())) {
             ctx.isSingleQuotes = !ctx.isSingleQuotes;
             ++current;
@@ -124,10 +144,26 @@ std::size_t HWParser::pos() const
     return static_cast<size_t>(current - first);
 }
 
+bool HWParser::isTokenChar(char c) const
+{
+    static std::string otherTokenChars {"_*/+-"};
+
+    return (std::isalnum(static_cast<unsigned char>(c))
+            || (otherTokenChars.find(c) != std::string::npos));
+}
+
 bool HWParser::isIdentifier(std::string_view str) const
 {
-    return !std::any_of(str.begin(), str.end(), [](char c) {
-        return (!std::isalnum(c)) && (c != '_');
+    return ((str[0] == '_') || std::isalpha(str[0]))
+            && ((str.size() == 1) || (!std::any_of(str.begin() + 1, str.end(), [](unsigned char c) {
+                return (!std::isalnum(c)) && (c != '_');
+        })));
+}
+
+bool HWParser::isInteger(std::string_view str) const
+{
+    return !std::any_of(str.begin(), str.end(), [](unsigned char c) {
+        return !std::isdigit(c);
     });
 }
 

@@ -26,7 +26,9 @@ protected:
 
     inline size_t pos() const;
 
+    inline bool isTokenChar(char c) const;
     inline bool isIdentifier(string_view str) const;
+    inline bool isInteger(string_view str) const;
 
     inline bool isSpecialState() const;
 
