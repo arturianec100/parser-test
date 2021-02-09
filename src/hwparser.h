@@ -16,13 +16,16 @@ public:
 
 protected:
     //Inner api
+    inline bool readLeftAssignment();
+    inline bool readType();
+    inline bool readSizing();
+    inline bool readTable();
+
     inline string_view peek(size_t count);
     inline string_view consume(size_t count);
     inline string_view token();
     inline void step();
     inline void moveBy(size_t chars);
-
-    inline void expectToken(string_view expected);
 
     inline size_t pos() const;
 
@@ -42,11 +45,6 @@ protected:
     inline void skip();
     inline void skipTo(char c);
     inline void skipToEndOfQuotes();
-    //Data
-    const char* first;
-    const char* last;
-    char* current;
-    Context ctx;
     //Types
     struct Context {
         bool shouldContinue = true;
@@ -57,8 +55,13 @@ protected:
         ParseResult *resPtr = nullptr;
         QTextStream *outPtr = nullptr;
         TableStage stage = NoTable;
-        enum TableStage { NoTable = -1, Type, Identifier, Sizing, Column, Row };
+        enum TableStage { NoTable = -1, Type, Identifier, Sizing, Table, Done };
     };
+    //Data
+    const char* first;
+    const char* last;
+    const char* current;
+    Context ctx;
 };
 
 #endif // HWPARSER_H

@@ -23,26 +23,20 @@ ParseResult HWParser::parse()
         skip();
         switch (ctx.stage) {
         case Context::NoTable:
-            if ((!isSpecialState()) && (peek(4) == "char")) {
+            if (readLeftAssignment()) {
                 ctx.stage = Context::Type;
-                moveBy(4);
-                break;//switch
+            } else {
+                skipTo(';');
+                step();
             }
-            skipTo(';');
-            step();
             break;//switch
         case Context::Type:
-            expectToken("*");
-            step();
-            skip();
-            //optional char* or char** or char***
-            TIMES(2) {
-                if (token() == "*") {
-                    step();
-                    skip();
-                }
+            if (!readType()) {
+                out << "Expected at least one '*' after type, got: " << token() << '\n';
+                ctx.shouldContinue = false;
+            } else {
+                ctx.stage = Context::Identifier;
             }
-            ctx.stage = Context::Identifier;
             break;//switch
         case Context::Identifier:
             std::string_view tokenStr = token();
@@ -55,28 +49,19 @@ ParseResult HWParser::parse()
             ctx.stage = Context::Sizing;
             break;//switch
         case Context::Sizing:
-            //optional
-            TIMES(2) {
-                if ((*current) == '[') {
-                    step();
-                    skip();
-                    std::string_view tokenStr = token();
-                    if (!isInteger(tokenStr)) {
-                        out << "Expected integer after '[' in sizing, got: " << tokenStr << '\n';
-                        ctx.shouldContinue = false;
-                        break;//switch
-                    }
-                    step();
-                    skip();
-                    if ((*current) != ']') {
-                        out << "Expected ']' after integer in sizing, got: " << tokenStr << '\n';
-                        ctx.shouldContinue = false;
-                        break;//switch
-                    }
-                    step();
-                }
+            //optional, but if started must be correct
+            if (!readSizing()) {
+                ctx.shouldContinue = false;
+            } else {
+                ctx.stage = Context::Column;
             }
-            ctx.stage = Context::Column;
+            break;//switch
+        case Context::Table:
+            if (!readTable()) {
+                ctx.shouldContinue = false;
+            } else {
+                ctx.stage = Context::Done;
+            }
             break;//switch
         default:
             ctx.shouldContinue = false;
@@ -84,6 +69,84 @@ ParseResult HWParser::parse()
     }
 
     return result;
+}
+
+bool HWParser::readLeftAssignment()
+{
+    if ((!isSpecialState()) && (peek(4) == "char")) {
+        moveBy(4);
+        return true;
+    }
+    return false;
+}
+
+bool HWParser::readType()
+{
+    if ((*current) != '*') {
+        return false;
+    }
+    step();
+    skip();
+    //optional char* or char** or char***
+    TIMES(2) {
+        if (token() == "*") {
+            step();
+            skip();
+        }
+    }
+    return true;
+}
+
+bool HWParser::readSizing()
+{
+    TIMES(2) {
+        if ((*current) == '[') {
+            step();
+            skip();
+            std::string_view tokenStr = token();
+            if (!isInteger(tokenStr)) {
+                (*ctx.outPtr) << "Expected integer after '[' in sizing, got: " << tokenStr << '\n';
+                return false;
+            }
+            step();
+            skip();
+            if ((*current) != ']') {
+                (*ctx.outPtr) << "Expected ']' after integer in sizing, got: " << tokenStr << '\n';
+                return false;
+            }
+            step();
+        }
+    }
+    return true;
+}
+
+bool HWParser::readTable()
+{
+    StringTable &table = ctx.resPtr->table;
+    StringRow *currentRow = nullptr;
+    //begin of array or arrays
+    if ((*current) != '{') {
+        (*ctx.outPtr) << "Expected '{' after identifier or sizing, got: " << tokenStr << '\n';
+        return false;
+    }
+    step();
+    skip();
+    if ((*current) != '{') {
+        (*ctx.outPtr) << "Expected '{' inside array, got: " << tokenStr << '\n';
+        return false;
+    }
+    while ((*current) == '{') {
+        table.append({});
+        currentRow = table.back();
+
+        step();
+        skip();
+        if ((*current) != '"') {
+            (*ctx.outPtr) << "Expected '\"' inside nested array, got: " << tokenStr << '\n';
+            return false;
+        }
+        //copy-on-write makes copy very cheap
+    }
 }
 
 std::string_view HWParser::peek(std::size_t count)
@@ -100,7 +163,7 @@ std::string_view HWParser::consume(std::size_t count)
 
 std::string_view HWParser::token()
 {
-    char* iter = current;
+    const char* iter = current;
     std::size_t length = 0;
     //while (a && b)
     while ((iter <= last) && isTokenChar(*iter)) {
@@ -129,14 +192,6 @@ void HWParser::step()
 void HWParser::moveBy(std::size_t chars)
 {
     current += chars;
-}
-
-void HWParser::expectToken(std::string_view expected)
-{
-    if (token() != expected) {
-        ctx.shouldContinue = false;
-        (*ctx.outPtr) << "Expected token: " << expected << '\n';
-    }
 }
 
 std::size_t HWParser::pos() const

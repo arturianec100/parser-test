@@ -3,7 +3,8 @@
 
 #include <QtCore>
 
-using StringTable = QLinkedList<QLinkedList<QString>>;
+using StringTable = QVector<QVector<QString>>;
+using StringRow = QVector<QString>;
 
 struct ParseResult {
     StringTable table;
