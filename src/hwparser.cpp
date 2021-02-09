@@ -5,7 +5,7 @@
 #include <cctype>
 #include <algorithm>
 
-HWParser::HWParser(const char *first_, const char *last_):
+HWParser::HWParser(iter_type first_, iter_type last_):
     first(first_), last(last_), current(first_) {}
 
 ParseResult HWParser::parse()
@@ -60,20 +60,22 @@ ParseResult HWParser::parse()
             if (!readTable()) {
                 ctx.shouldContinue = false;
             } else {
+                result.ok = true;
                 ctx.stage = Context::Done;
             }
             break;//switch
+        case Context::Done:
         default:
             ctx.shouldContinue = false;
         }
     }
-
     return result;
 }
 
 bool HWParser::readLeftAssignment()
 {
     if ((!isSpecialState()) && (peek(4) == "char")) {
+        ctx.resPtr->tableBeginIdx = pos();
         moveBy(4);
         return true;
     }
@@ -126,15 +128,16 @@ bool HWParser::readTable()
     StringRow *currentRow = nullptr;
     //begin of array or arrays
     if ((*current) != '{') {
-        (*ctx.outPtr) << "Expected '{' after identifier or sizing, got: " << tokenStr << '\n';
+        (*ctx.outPtr) << "Expected '{' after identifier or sizing, got: " << token() << '\n';
         return false;
     }
     step();
     skip();
     if ((*current) != '{') {
-        (*ctx.outPtr) << "Expected '{' inside array, got: " << tokenStr << '\n';
+        (*ctx.outPtr) << "Expected '{' inside array, got: " << token() << '\n';
         return false;
     }
+    //next array or strings
     while ((*current) == '{') {
         table.append({});
         currentRow = table.back();
@@ -142,14 +145,117 @@ bool HWParser::readTable()
         step();
         skip();
         if ((*current) != '"') {
-            (*ctx.outPtr) << "Expected '\"' inside nested array, got: " << tokenStr << '\n';
+            (*ctx.outPtr) << "Expected '\"' inside nested array, got: " << token() << '\n';
             return false;
         }
-        //copy-on-write makes copy very cheap
+        QString tableStr;
+        //next string
+        while ((*current) == '"') {
+            ctx.isDoubleQuotes = true;
+            tableStr = "";
+            if (!readString(tableStr)) {
+                skipToEndOfQuotes();
+            } else {
+                ctx.isDoubleQuotes = false;
+            }
+            currentRow->append(tableStr);
+            skip();
+            if ((*current) != ',') {
+                break;
+            }
+            step();
+            skip();
+        }//after all string of row
+        if ((*current) != '}') {
+            (*ctx.outPtr) << "Expected '}' after strings of nested array, got: " << token() << '\n';
+            return false;
+        }
+        step();
+        skip();
+        if ((*current) == ',') {
+            step();
+            skip();
+        }
+    }//after all rows
+    if ((*current) != '}') {
+        (*ctx.outPtr) << "Expected '}' after nested array, got: " << token() << '\n';
+        return false;
     }
+    step();
+    skip();
+    if ((*current) != ';') {
+        (*ctx.outPtr) << "Expected ';' after expression, got: " << token() << '\n';
+        return false;
+    }
+    ctx.resPtr->tableEndIdx = pos();
+    step();
+    skip();
+    return true;
 }
 
-std::string_view HWParser::peek(std::size_t count)
+bool HWParser::readString(QString &str)
+{
+    QTextStream stream(&str);
+    while ((!isEnd()) &&
+           !(((*current) == '"') && (*(current - 1) != '\\'))
+           ) {
+        if ((*current) == '\\') {
+            step();
+            continue;
+        }
+        if (symbolsToEscape.find(*current) != std::string::npos) {
+            (*ctx.outPtr) << "Found unescaped special symbol '"
+                          << (*current) << "', reading just partial string \""
+                          << str << "\"\n";
+            return false;
+        }
+        auto iter = escapedMapping.find(*current);
+        if ((*(current - 1)) == '\\') {
+            if (iter != escapedMapping.end()) {
+                stream << (*iter);
+                step();
+                continue;
+            }
+            if (isOctal(*current)) {
+                auto str = peekNOctal(3);
+                stream << octal2char(str);
+                current += str.size();
+                continue;
+            }
+            if (((*current) == 'x') && isHex(*(current + 1))) {
+                step();
+                auto str = peekNHex(8);
+                stream << hex2char(str);
+                current += str.size();
+                continue;
+            }
+            if (((*current) == 'u') && isHex(*(current + 1))) {
+                step();
+                auto str = peekNHex(4);
+                stream << hex2char(str);
+                current += str.size();
+                continue;
+            }
+            if (((*current) == 'U') && isHex(*(current + 1))) {
+                step();
+                auto str = peekNHex(8);
+                stream << hex2char(str);
+                current += str.size();
+                continue;
+            }
+            (*ctx.outPtr) << "Incorrect escaping syntax, found '"
+                          << (*current) << "' right after \\\n";
+            return false;
+        }//if current char is right after \\
+
+        stream << (*current);
+        step();
+    }//end of loop
+    step();
+    return true;
+}
+
+std::string_view HWParser::peek(std::size_t count) const
 {
     return {current, count};
 }
@@ -161,12 +267,33 @@ std::string_view HWParser::consume(std::size_t count)
     return str;
 }
 
-std::string_view HWParser::token()
+std::string_view HWParser::token() const
 {
-    const char* iter = current;
+    iter_type iter = current;
     std::size_t length = 0;
-    //while (a && b)
-    while ((iter <= last) && isTokenChar(*iter)) {
+    while ((iter < last) && isTokenChar(*iter)) {
+        ++iter;
+        ++length;
+    }
+    return {current, length};
+}
+
+std::string_view HWParser::peekNOctal(std::size_t n) const
+{
+    iter_type iter = current;
+    std::size_t length = 0;
+    while ((iter < last) && (length < n) && isOctal(*iter)) {
+        ++iter;
+        ++length;
+    }
+    return {current, length};
+}
+
+std::string_view HWParser::peekNHex(std::size_t n) const
+{
+    iter_type iter = current;
+    std::size_t length = 0;
+    while ((iter < last) && (length < n) && isHex(*iter)) {
         ++iter;
         ++length;
     }
@@ -176,8 +303,7 @@ std::string_view HWParser::token()
 void HWParser::step()
 {
     ++current;
-    while ((!isEnd()) && (ctx.stage == Context::NoTable)
-           && (isOnSingleQuote() || isOnDoubleQuote())) {
+    while ((!isEnd()) && (isOnSingleQuote() || isOnDoubleQuote())) {
         if (isOnSingleQuote() && (!isOnDoubleQuote())) {
             ctx.isSingleQuotes = !ctx.isSingleQuotes;
             ++current;
@@ -201,10 +327,18 @@ std::size_t HWParser::pos() const
 
 bool HWParser::isTokenChar(char c) const
 {
-    static std::string otherTokenChars {"_*/+-"};
-
     return (std::isalnum(static_cast<unsigned char>(c))
             || (otherTokenChars.find(c) != std::string::npos));
+}
+
+bool HWParser::isOctal(char c) const
+{
+    return octalChars.find(c) != std::string::npos;
+}
+
+bool HWParser::isHex(char c) const
+{
+    return hexChars.find(c) != std::string::npos;
 }
 
 bool HWParser::isIdentifier(std::string_view str) const
@@ -318,4 +452,14 @@ void HWParser::skipToEndOfQuotes()
             step();
         }
     }
+}
+
+char HWParser::octal2char(std::string_view str) const
+{
+    return static_cast<char>(std::stoi(str, 0, 8));
+}
+
+char HWParser::hex2char(std::string_view str) const
+{
+    return static_cast<char>(std::stoi(str, 0, 16));
 }
