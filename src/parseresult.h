@@ -8,7 +8,7 @@ using StringRow = QVector<QString>;
 
 struct ParseResult {
     StringTable table;
-    QString output;
+    std::string output;
     bool ok = false;
     size_t tableBeginIdx = 0;
     size_t tableEndIdx = 0;

@@ -6,10 +6,11 @@
 #include <string_view>
 #include <map>
 
+using namespace std;
+
 class HWParser
 {
 public:
-    using namespace std;
     using iter_type = const char*;
 
     HWParser(iter_type first_, iter_type last_);
@@ -20,7 +21,9 @@ protected:
     //Inner api
     inline bool readLeftAssignment();
     inline bool readType();
+    inline bool readIdentifier();
     inline bool readSizing();
+    inline bool readAssignment();
     inline bool readTable();
 
     inline bool readString(QString &str);
@@ -30,7 +33,7 @@ protected:
     inline string_view token() const;
     inline string_view peekNOctal(size_t n) const;
     inline string_view peekNHex(size_t n) const;
-    inline void step();
+    inline void step(bool skipQuoted = false);
     inline void moveBy(size_t chars);
 
     inline size_t pos() const;
@@ -58,23 +61,28 @@ protected:
     inline char hex2char(string_view str) const;
     //Types
     struct Context {
+        enum TableStage { NoTable = -1, Type, Identifier, Sizing,
+                          Assignment, Table, Done };
+
         bool shouldContinue = true;
         bool isOneLineComment = false;
         bool isMultiLineComment = false;
         bool isSingleQuotes = false;
         bool isDoubleQuotes = false;
         ParseResult *resPtr = nullptr;
-        QTextStream *outPtr = nullptr;
+        stringstream *outPtr = nullptr;
         TableStage stage = NoTable;
-        enum TableStage { NoTable = -1, Type, Identifier, Sizing, Table, Done };
     };
     //Static data
-    static const std::string otherTokenChars {"_"};
-    static const std::string octalChars {"01234567"};
-    static const std::string hexChars {"0123456789aAbBcCdDeEfF"};
-    static const std::string symbolsToEscape {"\'\"\?\\\0\a\b\e\f\n\r\t\v"};
-    static const std::string symbolsWithSpecialEscapeMeaning {"'\\?0abfnrtv"};
-    static const std::map<char, std::string> escapedMapping {
+    inline static const vector<string> allowedKeyWordsModifiers {
+        {"const"}, {"static"}, {"volatile"}
+    };
+    inline static const string otherTokenChars {"_"};
+    inline static const string octalChars {"01234567"};
+    inline static const string hexChars {"0123456789aAbBcCdDeEfF"};
+    inline static const string symbolsToEscape {"\'\"\?\\\0\a\b\e\f\n\r\t\v"};
+    inline static const string symbolsWithSpecialEscapeMeaning {"'\\?0abfnrtv"};
+    inline static const map<char, std::string> escapedMapping {
         {'\'', "\\\'"}, {'\\', "\\\\"}, {'?', "\\?"}, {'0', "\\0"},
         {'a', "\\a"}, {'b', "\\b"}, {'e', "\\e"}, {'f', "\\f"},
         {'n', "\\n"}, {'r', "\\r"}, {'t', "\\t"}, {'v', "\\v"}

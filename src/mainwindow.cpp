@@ -48,7 +48,30 @@ void MainWindow::parse()
 
     ParseResult result = parse_source(begin, end);
 
-    ui->parsedResultsEdit->setPlainText(result.output);
+    StringTable &table = result.table;
+    QString output = QString::fromStdString(result.output);
+    QTextStream stream(&output);
+    bool rowComma = false;
+    stream << "{\n";
+    for (auto &row : table) {
+        if (rowComma) {
+            stream << ",\n";
+        }
+        rowComma = true;
+        bool cellComma = false;
+        stream << "  {\n";
+        for (auto &cell : row) {
+            if (cellComma) {
+                stream << ",\n";
+            }
+            cellComma = true;
+            stream << "    \"" << cell << "\"";
+        }
+        stream << "\n  }";
+    }
+    stream << "};\n";
+
+    ui->parsedResultsEdit->setPlainText(output);
 }
 
 void MainWindow::setupActions()

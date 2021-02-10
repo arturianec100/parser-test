@@ -3,6 +3,7 @@
 #include "macro.h"
 
 #include <cctype>
+#include <sstream>
 #include <algorithm>
 
 HWParser::HWParser(iter_type first_, iter_type last_):
@@ -11,7 +12,7 @@ HWParser::HWParser(iter_type first_, iter_type last_):
 ParseResult HWParser::parse()
 {
     ParseResult result;
-    QTextStream out(&result.output);
+    stringstream out(result.output);
     ctx = {};
     ctx.resPtr = &result;
     ctx.outPtr = &out;
@@ -22,41 +23,49 @@ ParseResult HWParser::parse()
         }
         skip();
         switch (ctx.stage) {
-        case Context::NoTable:
+        case Context::NoTable: {
             if (readLeftAssignment()) {
                 ctx.stage = Context::Type;
             } else {
                 skipTo(';');
-                step();
+                step(true);
             }
             break;//switch
-        case Context::Type:
+        }
+        case Context::Type: {
             if (!readType()) {
-                out << "Expected at least one '*' after type, got: " << token() << '\n';
                 ctx.shouldContinue = false;
             } else {
                 ctx.stage = Context::Identifier;
             }
             break;//switch
-        case Context::Identifier:
-            std::string_view tokenStr = token();
-            if (!isIdentifier(tokenStr)) {
-                out << "Expected identifier after type, got: " << tokenStr << '\n';
+        }
+        case Context::Identifier: {
+            if (!readIdentifier()) {
                 ctx.shouldContinue = false;
-                break;//switch
+            } else {
+                ctx.stage = Context::Sizing;
             }
-            moveBy(tokenStr.size());
-            ctx.stage = Context::Sizing;
             break;//switch
-        case Context::Sizing:
+        }
+        case Context::Sizing: {
             //optional, but if started must be correct
             if (!readSizing()) {
                 ctx.shouldContinue = false;
             } else {
-                ctx.stage = Context::Column;
+                ctx.stage = Context::Assignment;
             }
             break;//switch
-        case Context::Table:
+        }
+        case Context::Assignment: {
+            if (!readAssignment()) {
+                ctx.shouldContinue = false;
+            } else {
+                ctx.stage = Context::Table;
+            }
+            break;//switch
+        }
+        case Context::Table: {
             if (!readTable()) {
                 ctx.shouldContinue = false;
             } else {
@@ -64,6 +73,7 @@ ParseResult HWParser::parse()
                 ctx.stage = Context::Done;
             }
             break;//switch
+        }
         case Context::Done:
         default:
             ctx.shouldContinue = false;
@@ -74,16 +84,25 @@ ParseResult HWParser::parse()
 
 bool HWParser::readLeftAssignment()
 {
-    if ((!isSpecialState()) && (peek(4) == "char")) {
-        ctx.resPtr->tableBeginIdx = pos();
-        moveBy(4);
-        return true;
+    auto &modifiers = allowedKeyWordsModifiers;
+    while (std::find(modifiers.begin(), modifiers.end(),
+                     token()) != modifiers.end()) {
+        moveBy(token().size());
+        skip();
     }
-    return false;
+    return true;
 }
 
 bool HWParser::readType()
 {
+    static const std::string_view charTypeStr = "char";
+    if ((isSpecialState()) || (peek(charTypeStr.size()) != charTypeStr)) {
+        (*ctx.outPtr) << "Expected \"char\" type"
+               " in beginning of expression, got: " << token() << '\n';
+    }
+    ctx.resPtr->tableBeginIdx = pos();
+    moveBy(charTypeStr.size());
+    skip();
     if ((*current) != '*') {
         return false;
     }
@@ -96,6 +115,17 @@ bool HWParser::readType()
             skip();
         }
     }
+    return true;
+}
+
+bool HWParser::readIdentifier()
+{
+    std::string_view tokenStr = token();
+    if (!isIdentifier(tokenStr)) {
+        (*ctx.outPtr) << "Expected identifier after type, got: " << tokenStr << '\n';
+        return false;
+    }
+    moveBy(tokenStr.size());
     return true;
 }
 
@@ -122,6 +152,17 @@ bool HWParser::readSizing()
     return true;
 }
 
+bool HWParser::readAssignment()
+{
+    if ((*current) != '=') {
+        (*ctx.outPtr) << "Expected '=' after sizing or identifier, got: " << token() << '\n';
+        return false;
+    }
+    step();
+    skip();
+    return true;
+}
+
 bool HWParser::readTable()
 {
     StringTable &table = ctx.resPtr->table;
@@ -139,8 +180,8 @@ bool HWParser::readTable()
     }
     //next array or strings
     while ((*current) == '{') {
-        table.append({});
-        currentRow = table.back();
+        table.append(StringRow());
+        currentRow = &table.back();
 
         step();
         skip();
@@ -196,6 +237,7 @@ bool HWParser::readTable()
 bool HWParser::readString(QString &str)
 {
     QTextStream stream(&str);
+    step();
     while ((!isEnd()) &&
            !(((*current) == '"') && (*(current - 1) != '\\'))
            ) {
@@ -206,13 +248,13 @@ bool HWParser::readString(QString &str)
         if (symbolsToEscape.find(*current) != std::string::npos) {
             (*ctx.outPtr) << "Found unescaped special symbol '"
                           << (*current) << "', reading just partial string \""
-                          << str << "\"\n";
+                          << str.toStdString() << "\"\n";
             return false;
         }
         auto iter = escapedMapping.find(*current);
         if ((*(current - 1)) == '\\') {
             if (iter != escapedMapping.end()) {
-                stream << (*iter);
+                stream << iter->second.data();
                 step();
                 continue;
             }
@@ -300,17 +342,19 @@ std::string_view HWParser::peekNHex(std::size_t n) const
     return {current, length};
 }
 
-void HWParser::step()
+void HWParser::step(bool skipQuoted)
 {
     ++current;
-    while ((!isEnd()) && (isOnSingleQuote() || isOnDoubleQuote())) {
-        if (isOnSingleQuote() && (!isOnDoubleQuote())) {
-            ctx.isSingleQuotes = !ctx.isSingleQuotes;
-            ++current;
-        }
-        if (isOnDoubleQuote() && (!isOnSingleQuote())) {
-            ctx.isDoubleQuotes = !ctx.isDoubleQuotes;
-            ++current;
+    if (skipQuoted) {
+        while ((!isEnd()) && (isOnSingleQuote() || isOnDoubleQuote())) {
+            if (isOnSingleQuote() && (!isOnDoubleQuote())) {
+                ctx.isSingleQuotes = !ctx.isSingleQuotes;
+                step();
+            }
+            if (isOnDoubleQuote() && (!isOnSingleQuote())) {
+                ctx.isDoubleQuotes = !ctx.isDoubleQuotes;
+                step();
+            }
         }
     }
 }
@@ -397,12 +441,12 @@ void HWParser::skip()
     while (shouldSkip()) {
 
         while(isSpace() && (!isEnd())) {
-            ++current;
+            step();
         }
 
         if (ctx.isMultiLineComment) {
             while ((peek(2) != "*/") && (!isEnd())) {
-                ++current;
+                step();
             }
             if (!isEnd()) {
                 current += 2;//don't point to "*/"
@@ -412,10 +456,10 @@ void HWParser::skip()
 
         if (ctx.isOneLineComment) {
             while (((*current) != '\n') && (!isEnd())) {
-                ++current;
+                step();
             }
             if (!isEnd()) {
-                ++current;//don't point to '\n'
+                step();//don't point to '\n'
             }
             ctx.isOneLineComment = false;
         }
@@ -456,10 +500,12 @@ void HWParser::skipToEndOfQuotes()
 
 char HWParser::octal2char(std::string_view str) const
 {
-    return static_cast<char>(std::stoi(str, 0, 8));
+    size_t pos = 0;
+    return static_cast<char>(std::stoi(string(str), &pos, 8));
 }
 
 char HWParser::hex2char(std::string_view str) const
 {
-    return static_cast<char>(std::stoi(str, 0, 16));
+    size_t pos = 0;
+    return static_cast<char>(std::stoi(string(str), &pos, 16));
 }
