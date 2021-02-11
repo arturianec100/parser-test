@@ -445,6 +445,7 @@ void HWParser::skip()
         }
 
         if (ctx.isMultiLineComment) {
+            leave_multiline_comment:
             while ((peek(2) != "*/") && (!isEnd())) {
                 step();
             }
@@ -457,6 +458,10 @@ void HWParser::skip()
         if (ctx.isOneLineComment) {
             while (((*current) != '\n') && (!isEnd())) {
                 step();
+                if (((*current) == '*') && ((*(current - 1)) == '/')) {
+                    ctx.isMultiLineComment = true;
+                    goto leave_multiline_comment;
+                }
             }
             if (!isEnd()) {
                 step();//don't point to '\n'
